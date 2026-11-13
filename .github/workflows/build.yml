@@ -1,0 +1,57 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generar proyecto Android
+        run: flutter create --platforms=android --org com.melisa --project-name gametranslator .
+
+      - name: Copiar manifest y código nativo
+        run: |
+          cp native_android/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          mkdir -p android/app/src/main/kotlin/com/melisa/gametranslator
+          cp native_android/kotlin/com/melisa/gametranslator/*.kt android/app/src/main/kotlin/com/melisa/gametranslator/
+
+      - name: Añadir dependencias de ML Kit y minSdk 26
+        run: |
+          GRADLE_FILE=$(ls android/app/build.gradle.kts android/app/build.gradle 2>/dev/null | head -n 1)
+          echo "Editando $GRADLE_FILE"
+          sed -E -i 's/minSdk(Version)?[[:space:]]*=?[[:space:]]*flutter\.minSdkVersion/minSdk = 26/' "$GRADLE_FILE"
+          cat >> "$GRADLE_FILE" <<'EOF'
+
+          dependencies {
+              implementation("com.google.mlkit:text-recognition:16.0.1")
+              implementation("com.google.mlkit:translate:17.0.3")
+              implementation("com.google.android.gms:play-services-tasks:18.2.0")
+          }
+          EOF
+          grep -n "minSdk" "$GRADLE_FILE"
+
+      - run: flutter pub get
+
+      - name: Compilar APK
+        run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: traductor-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
